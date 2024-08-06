@@ -1,0 +1,127 @@
+---
+title: "Horn_bioclim_species_model"
+author: "Malothro"
+date: "2024-08-06"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(geodata)
+library(raster)
+library(ggmap)
+library(dismo)
+library(grid)
+library(geosphere)
+library(sf)
+# Set Working Directory
+setwd("C:\\Users\\dy0053tu\\Desktop\\r_data\\2_SDM+Data\\2_SDM Data")
+```
+
+## Load and prepare data
+```{r}
+horn <- read.csv("hornbill_my1.csv")
+horn1 <- horn[,-1]  # Remove the first column
+worldclim <- worldclim_global(var = "bio", res = 10, path = tempdir("C:\\Users\\dy0053tu\\Desktop\\r_data"))
+```
+
+## Define geographic extent
+
+```{r}
+ext <- extent(99, 105, 1.2, 6.7)
+msia.worldclim <- crop(worldclim, ext)
+```
+
+## Define Bounding Box with Buffer
+
+```{r}
+buffer <- 1  # Adjust buffer distance as needed
+h.extent <- extent(
+  min(horn1$long) - buffer,
+  max(horn1$long) + buffer,
+  min(horn1$lat) - buffer,
+  max(horn1$lat) + buffer
+)
+```
+
+## Get Plots and Basemap
+
+```{r}
+stbbox <- c(left = xmin(h.extent), bottom = ymin(h.extent), right = xmax(h.extent), top = ymax(h.extent))
+register_stadiamaps(key = "fd34d69d-d55b-4da7-af0b-bd6e38a855ab")
+h.map <- get_stadiamap(bbox = stbbox, maptype = 'stamen_terrain', zoom = 5)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+```{r}
+plot(h.map)
+points(mercator(horn1[, c('long', 'lat')]), pch = 16, col = 'red')
+h.map_raster <- rasterGrob(h.map, width = unit(1, "npc"), height = unit(1, "npc"))
+horn1_sf <- st_as_sf(horn1, coords = c("long", "lat"), crs = 4326)
+ggplot() +
+  annotation_custom(h.map_raster, xmin = stbbox["left"], xmax = stbbox["right"], ymin = stbbox["bottom"], ymax = stbbox["top"]) +
+  geom_sf(data = horn1_sf, color = "red", size = 3) +
+  coord_sf(xlim = c(stbbox["left"], stbbox["right"]), ylim = c(stbbox["bottom"], stbbox["top"]), expand = FALSE) +
+  theme_void()
+```
+
+
+```{r}
+# Convert SpatRaster to RasterStack
+msia.worldclim_raster <- raster::stack(msia.worldclim)
+
+# Convert horn1 to a Matrix of Coordinates
+coords_matrix <- as.matrix(horn1[c("long", "lat")])
+```
+
+```{r}
+# Create Bioclim model
+horn.d <- bioclim(msia.worldclim_raster, coords_matrix)
+
+```
+
+```{r}
+# Plot Response Curves
+par(mar = c(2,2,2,2), mfrow = c(4, 4))
+response(horn.d)
+par(mfrow = c(1, 1))
+```
+
+## Create Bioclim Model and Predict
+```{r}
+horn.d <- bioclim(msia.worldclim_raster, coords_matrix)
+horn.d.pred <- predict(object = horn.d, x = msia.worldclim_raster)
+
+# Plot Predictions
+plot(horn.d.pred, main = 'SDM Predictions Using Climate Layers')
+points(horn1[, c('long', 'lat')], pch = 16, cex = 0.25)
+```
+
+### evaluate model performance
+### background data (pseudo-absences) needed for this
+### determine if the model can differentiate bw the habitat & the background
+```{r}
+
+#species presence
+
+head(horn1)
+
+plot(msia.worldclim_raster) #predictors
+
+horn.d = bioclim(msia.worldclim_raster, horn1[,c('long','lat')])
+## bioclimatic model
+
+ext = extent(99, 105, 1.2, 6.7)
+
+backg = randomPoints(msia.worldclim_raster, n=1000,ext=ext, extf = 1.25)
+#background/pseudo-absence data
+
+e = evaluate(horn1, backg, horn.d, msia.worldclim_raster)
+#presence, background, model, predictors
+
+e
+
+plot(e, 'ROC')
+
+```
+
